@@ -60,6 +60,7 @@ add_library(social_bt_nodes_plugin SHARED
   src/bt_nodes/interaction/listen.cpp
   src/bt_nodes/interaction/extract.cpp
   src/bt_nodes/interaction/confirmation.cpp
+  src/bt_nodes/interaction/analyze_image.cpp
   src/bt_nodes/interaction/nao_position.cpp
   src/bt_nodes/interaction/nao_set_leds.cpp
   src/bt_nodes/support/set_ros2_param.cpp

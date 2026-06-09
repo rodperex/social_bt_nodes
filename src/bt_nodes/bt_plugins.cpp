@@ -10,6 +10,7 @@
 #include "social_bt_nodes/bt_nodes/interaction/listen.hpp"
 #include "social_bt_nodes/bt_nodes/interaction/extract.hpp"
 #include "social_bt_nodes/bt_nodes/interaction/confirmation.hpp"
+#include "social_bt_nodes/bt_nodes/interaction/analyze_image.hpp"
 #include "social_bt_nodes/bt_nodes/interaction/nao_position.hpp"
 #include "social_bt_nodes/bt_nodes/interaction/nao_set_leds.hpp"
 #include "social_bt_nodes/bt_nodes/support/set_ros2_param.hpp"
@@ -28,6 +29,7 @@ BT_REGISTER_NODES(factory)
   factory.registerNodeType<social_bt_nodes::Listen>("Listen");
   factory.registerNodeType<social_bt_nodes::Extract>("Extract");
   factory.registerNodeType<social_bt_nodes::Confirmation>("Confirmation");
+  factory.registerNodeType<social_bt_nodes::AnalyzeImage>("AnalyzeImage");
   factory.registerNodeType<social_bt_nodes::NaoPosition>("NaoPosition");
   factory.registerNodeType<social_bt_nodes::NaoSetLeds>("NaoSetLeds");
   factory.registerNodeType<social_bt_nodes::SetRos2Param>("SetRos2Param");
