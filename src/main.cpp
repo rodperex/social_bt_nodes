@@ -2,6 +2,7 @@
 #include <chrono>
 #include <algorithm>
 #include <cctype>
+#include <iostream>
 #include <sstream>
 #include <string>
 
@@ -13,6 +14,9 @@
 
 namespace
 {
+
+constexpr int EXIT_SETUP_ERROR = 1;
+constexpr int EXIT_BT_FAILURE = 2;
 
 std::string to_lower_copy(std::string value)
 {
@@ -130,6 +134,60 @@ bool load_blackboard_from_yaml(
   return true;
 }
 
+bool wait_for_valid_ros_time(
+  const rclcpp::Node::SharedPtr & node,
+  double timeout_sec)
+{
+  const bool use_sim_time = node->get_parameter("use_sim_time").as_bool();
+  if (!use_sim_time) {
+    return true;
+  }
+
+  RCLCPP_INFO(
+    node->get_logger(),
+    "use_sim_time=true, waiting for first non-zero /clock before ticking the BT");
+
+  const auto deadline =
+    std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout_sec);
+  rclcpp::WallRate rate(20.0);
+
+  while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
+    rclcpp::spin_some(node);
+    if (node->now().nanoseconds() > 0) {
+      RCLCPP_INFO(node->get_logger(), "ROS time is ready");
+      return true;
+    }
+    rate.sleep();
+  }
+
+  RCLCPP_ERROR(
+    node->get_logger(),
+    "Timed out waiting for /clock while use_sim_time=true");
+  return false;
+}
+
+std::string blackboard_string_or_empty(BT::Blackboard::Ptr blackboard, const std::string & key)
+{
+  try {
+    return blackboard->get<std::string>(key);
+  } catch (const std::exception &) {
+    return "";
+  }
+}
+
+void print_failure_metadata(BT::Blackboard::Ptr blackboard)
+{
+  const std::string code = blackboard_string_or_empty(blackboard, "bt_last_failure_code");
+  const std::string reason = blackboard_string_or_empty(blackboard, "bt_last_failure");
+
+  if (!code.empty()) {
+    std::cout << "BT_FAILURE_CODE=" << code << std::endl;
+  }
+  if (!reason.empty()) {
+    std::cout << "BT_FAILURE_REASON=" << reason << std::endl;
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -144,6 +202,9 @@ int main(int argc, char** argv)
   node->declare_parameter("plugin_list", std::vector<std::string>());
   node->declare_parameter("feed_bb", false);
   node->declare_parameter("bb_feed_yaml", "");
+  if (!node->has_parameter("use_sim_time")) {
+    node->declare_parameter("use_sim_time", false);
+  }
   
   // Get parameters
   std::string bt_xml = node->get_parameter("bt_xml").as_string();
@@ -155,7 +216,7 @@ int main(int argc, char** argv)
   
   if (bt_xml.empty()) {
     RCLCPP_ERROR(node->get_logger(), "bt_xml parameter is required");
-    return 1;
+    return EXIT_SETUP_ERROR;
   }
   
   RCLCPP_INFO(node->get_logger(), "Loading behavior tree from: %s", bt_xml.c_str());
@@ -171,10 +232,10 @@ int main(int argc, char** argv)
   if (feed_bb) {
     if (bb_feed_yaml.empty()) {
       RCLCPP_ERROR(node->get_logger(), "feed_bb=true but bb_feed_yaml is empty");
-      return 1;
+      return EXIT_SETUP_ERROR;
     }
     if (!load_blackboard_from_yaml(node->get_logger(), blackboard, bb_feed_yaml)) {
-      return 1;
+      return EXIT_SETUP_ERROR;
     }
     blackboard->debugMessage();
   }
@@ -187,7 +248,7 @@ int main(int argc, char** argv)
     } catch (const std::exception& e) {
       RCLCPP_ERROR(node->get_logger(), 
         "Failed to load plugin %s: %s", plugin.c_str(), e.what());
-      return 1;
+      return EXIT_SETUP_ERROR;
     }
   }
   
@@ -199,7 +260,7 @@ int main(int argc, char** argv)
   } catch (const std::exception& e) {
     RCLCPP_ERROR(node->get_logger(), 
       "Failed to create tree: %s", e.what());
-    return 1;
+    return EXIT_SETUP_ERROR;
   }
   
   // StdCout logger: prints node status transitions to stdout
@@ -215,11 +276,16 @@ int main(int argc, char** argv)
   //     "Groot2 publisher not available: %s", e.what());
   // }
   
+  if (!wait_for_valid_ros_time(node, 10.0)) {
+    return EXIT_SETUP_ERROR;
+  }
+
   // Tick the tree periodically
   RCLCPP_INFO(node->get_logger(), 
     "Starting behavior tree execution (loop: %d ms)", bt_loop_duration);
   
   rclcpp::WallRate rate{std::chrono::milliseconds(bt_loop_duration)};
+  int exit_code = EXIT_SETUP_ERROR;
   
   while (rclcpp::ok()) {
     // Spin ROS callbacks
@@ -239,9 +305,14 @@ int main(int argc, char** argv)
     // Handle terminal states
     if (status == BT::NodeStatus::SUCCESS) {
       RCLCPP_INFO(node->get_logger(), "Behavior tree succeeded");
+      std::cout << "BT_FINAL_STATUS=SUCCESS" << std::endl;
+      exit_code = 0;
       break;
     } else if (status == BT::NodeStatus::FAILURE) {
       RCLCPP_WARN(node->get_logger(), "Behavior tree failed");
+      print_failure_metadata(blackboard);
+      std::cout << "BT_FINAL_STATUS=FAILURE" << std::endl;
+      exit_code = EXIT_BT_FAILURE;
       break;
     }
     
@@ -251,5 +322,5 @@ int main(int argc, char** argv)
   RCLCPP_INFO(node->get_logger(), "Shutting down behavior tree");
   rclcpp::shutdown();
   
-  return 0;
+  return exit_code;
 }

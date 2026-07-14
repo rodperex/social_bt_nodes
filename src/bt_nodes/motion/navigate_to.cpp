@@ -1,5 +1,6 @@
 #include "social_bt_nodes/bt_nodes/motion/navigate_to.hpp"
 #include "social_bt_nodes/bt_failure.hpp"
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
@@ -59,7 +60,7 @@ BT::NodeStatus NavigateTo::onStart()
     timeout_ = 300.0;  // 5 minutes default
   }
 
-  start_time_ = node_->now();
+  start_steady_time_ = std::chrono::steady_clock::now();
 
   // Wait for action server
   if (!action_client_->wait_for_action_server(std::chrono::seconds(5))) {
@@ -82,19 +83,33 @@ BT::NodeStatus NavigateTo::onStart()
       frame_id = "map";
     }
 
-    try {
-      goal_pose = create_goal_pose_from_tf(target_frame, frame_id);
-      RCLCPP_INFO(node_->get_logger(), 
-        "NavigateTo: Navigating to frame '%s' at [%.2f, %.2f, %.2f]",
-        target_frame.c_str(),
-        goal_pose.pose.position.x,
-        goal_pose.pose.position.y,
-        goal_pose.pose.position.z);
-    } catch (const std::exception & e) {
-      error_msg_ = std::string("Failed to get transform: ") + e.what();
-      RCLCPP_ERROR(node_->get_logger(), "NavigateTo: %s", error_msg_.c_str());
-      setOutput("error_msg", error_msg_);
-      return bt_failure(config(), registrationName(), error_msg_);
+    bool resolve_target_frame = false;
+    getInput("resolve_target_frame", resolve_target_frame);
+
+    if (resolve_target_frame) {
+      double tf_timeout = 1.0;
+      getInput("tf_timeout", tf_timeout);
+      try {
+        goal_pose = create_goal_pose_from_tf(target_frame, frame_id, tf_timeout);
+        RCLCPP_INFO(node_->get_logger(), 
+          "NavigateTo: Resolved frame '%s' in '%s' at [%.2f, %.2f, %.2f]",
+          target_frame.c_str(),
+          frame_id.c_str(),
+          goal_pose.pose.position.x,
+          goal_pose.pose.position.y,
+          goal_pose.pose.position.z);
+      } catch (const std::exception & e) {
+        error_msg_ = std::string("Failed to get transform: ") + e.what();
+        RCLCPP_ERROR(node_->get_logger(), "NavigateTo: %s", error_msg_.c_str());
+        setOutput("error_msg", error_msg_);
+        return bt_failure(config(), registrationName(), error_msg_);
+      }
+    } else {
+      goal_pose = create_goal_pose_from_target_frame(target_frame);
+      RCLCPP_INFO(
+        node_->get_logger(),
+        "NavigateTo: Sending zero pose in target frame '%s' and letting Nav2 transform it",
+        target_frame.c_str());
     }
   } else {
     // Navigate to coordinates
@@ -124,6 +139,18 @@ BT::NodeStatus NavigateTo::onStart()
   // Prepare and send goal
   auto goal_msg = NavigateToPose::Goal();
   goal_msg.pose = goal_pose;
+  goal_msg.behavior_tree = resolve_behavior_tree();
+
+  if (!goal_msg.behavior_tree.empty()) {
+    RCLCPP_INFO(
+      node_->get_logger(),
+      "NavigateTo: Using Nav2 behavior tree '%s'",
+      goal_msg.behavior_tree.c_str());
+  } else {
+    RCLCPP_INFO(
+      node_->get_logger(),
+      "NavigateTo: Using Nav2 navigator default behavior tree");
+  }
 
   auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
   send_goal_options.goal_response_callback =
@@ -141,7 +168,8 @@ BT::NodeStatus NavigateTo::onStart()
 BT::NodeStatus NavigateTo::onRunning()
 {
   // Check timeout
-  auto elapsed = (node_->now() - start_time_).seconds();
+  const auto elapsed = std::chrono::duration<double>(
+    std::chrono::steady_clock::now() - start_steady_time_).count();
   if (elapsed > timeout_) {
     error_msg_ = "Navigation timeout exceeded";
     RCLCPP_ERROR(node_->get_logger(), "NavigateTo: %s", error_msg_.c_str());
@@ -260,15 +288,37 @@ geometry_msgs::msg::PoseStamped NavigateTo::create_goal_pose_from_coordinates(
   return goal_pose;
 }
 
+geometry_msgs::msg::PoseStamped NavigateTo::create_goal_pose_from_target_frame(
+  const std::string & target_frame)
+{
+  geometry_msgs::msg::PoseStamped goal_pose;
+  goal_pose.header.frame_id = target_frame;
+  goal_pose.header.stamp = builtin_interfaces::msg::Time();
+
+  goal_pose.pose.position.x = 0.0;
+  goal_pose.pose.position.y = 0.0;
+  goal_pose.pose.position.z = 0.0;
+  goal_pose.pose.orientation.x = 0.0;
+  goal_pose.pose.orientation.y = 0.0;
+  goal_pose.pose.orientation.z = 0.0;
+  goal_pose.pose.orientation.w = 1.0;
+
+  return goal_pose;
+}
+
 geometry_msgs::msg::PoseStamped NavigateTo::create_goal_pose_from_tf(
-  const std::string & target_frame, const std::string & frame_id)
+  const std::string & target_frame, const std::string & frame_id, double timeout)
 {
   geometry_msgs::msg::TransformStamped transform;
   
   try {
+    if (timeout <= 0.0) {
+      throw std::runtime_error("tf_timeout must be greater than zero");
+    }
+
     // Wait for transform to be available
     if (!tf_buffer_->canTransform(frame_id, target_frame, tf2::TimePointZero, 
-                                   std::chrono::seconds(1))) {
+                                   tf2::durationFromSec(timeout))) {
       throw std::runtime_error("Transform not available within timeout");
     }
 
@@ -286,6 +336,32 @@ geometry_msgs::msg::PoseStamped NavigateTo::create_goal_pose_from_tf(
   goal_pose.pose.orientation = transform.transform.rotation;
 
   return goal_pose;
+}
+
+std::string NavigateTo::resolve_behavior_tree()
+{
+  std::string behavior_tree;
+  if (getInput("behavior_tree", behavior_tree) && !behavior_tree.empty()) {
+    return behavior_tree;
+  }
+
+  bool use_truncated_path = true;
+  getInput("use_truncated_path", use_truncated_path);
+  if (!use_truncated_path) {
+    return "";
+  }
+
+  try {
+    return ament_index_cpp::get_package_share_directory("social_bt_nodes") +
+           "/config/navigate_to_pose_truncated.xml";
+  } catch (const std::exception & e) {
+    RCLCPP_WARN(
+      node_->get_logger(),
+      "NavigateTo: Could not resolve default truncated Nav2 BT: %s. "
+      "Falling back to Nav2 default BT.",
+      e.what());
+    return "";
+  }
 }
 
 }  // namespace social_bt_nodes

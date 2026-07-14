@@ -86,7 +86,7 @@ BT::NodeStatus SetPerceptionTarget::onRunning()
       RCLCPP_INFO(node_->get_logger(), 
         "SetPerceptionTarget: Successfully set target class to '%s': %s", 
         target_class_.c_str(), result->message.c_str());
-      setOutput("frame_id", target_class_);
+      setOutput("frame_id", "target"); // talk to rod
       return BT::NodeStatus::SUCCESS;
     } else {
       RCLCPP_ERROR(node_->get_logger(), 

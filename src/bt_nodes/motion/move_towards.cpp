@@ -142,8 +142,6 @@ BT::NodeStatus MoveTowards::onRunning()
       return BT::NodeStatus::SUCCESS;
     }
 
-    return BT::NodeStatus::RUNNING;
-
     // Calculate velocities using PID control
     rclcpp::Time current_time = node_->now();
     double dt = (current_time - last_time_).seconds();

@@ -29,7 +29,7 @@ public:
       BT::InputPort<std::string>("target_frame", "target", "Target TF frame to evaluate"),
       BT::InputPort<std::string>("base_frame", "base_link", "Base TF frame for reference"),
       BT::InputPort<double>("min_static_time_sec", 5.0, "Required stillness duration in seconds"),
-      BT::InputPort<double>("position_epsilon", 0.05, "Maximum displacement in metres considered static"),
+      BT::InputPort<double>("position_epsilon", 0.025, "Maximum displacement in metres consio su dered static"),
       BT::InputPort<double>("timeout", 0.5, "Maximum TF wait/staleness threshold in seconds")
     };
   }
@@ -38,13 +38,6 @@ private:
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
-
-  bool has_last_sample_;
-  std::string last_target_frame_;
-  double last_x_;
-  double last_y_;
-  double last_z_;
-  rclcpp::Time last_motion_time_;
 };
 
 }  // namespace social_bt_nodes

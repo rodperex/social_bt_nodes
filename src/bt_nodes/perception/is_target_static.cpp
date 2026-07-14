@@ -9,13 +9,7 @@ namespace social_bt_nodes
 {
 
 IsTargetStatic::IsTargetStatic(const std::string & name, const BT::NodeConfig & conf)
-: BT::ConditionNode(name, conf),
-  has_last_sample_(false),
-  last_target_frame_(""),
-  last_x_(0.0),
-  last_y_(0.0),
-  last_z_(0.0),
-  last_motion_time_(0, 0, RCL_ROS_TIME)
+: BT::ConditionNode(name, conf)
 {
   auto node_any = config().blackboard->get<rclcpp::Node::SharedPtr>("node");
   if (!node_any) {
@@ -66,14 +60,14 @@ BT::NodeStatus IsTargetStatic::tick()
   }
 
   try {
-    const auto transform = tf_buffer_->lookupTransform(
-      base_frame,
-      target_frame,
+    // Current position (latest available transform)
+    const auto transform_now = tf_buffer_->lookupTransform(
+      base_frame, target_frame,
       tf2::TimePointZero,
       tf2::durationFromSec(timeout));
 
     const auto now = node_->get_clock()->now();
-    const auto tf_time = rclcpp::Time(transform.header.stamp);
+    const auto tf_time = rclcpp::Time(transform_now.header.stamp);
     const auto age = (now - tf_time).seconds();
     if (age > timeout) {
       return bt_failure(
@@ -82,38 +76,40 @@ BT::NodeStatus IsTargetStatic::tick()
         "bt_tf_stale");
     }
 
-    const double x = transform.transform.translation.x;
-    const double y = transform.transform.translation.y;
-    const double z = transform.transform.translation.z;
+    // Position min_static_time_sec ago
+    const auto past_time = tf_time - rclcpp::Duration::from_seconds(min_static_time_sec);
+    const tf2::TimePoint past_tp(std::chrono::nanoseconds(past_time.nanoseconds()));
 
-    if (!has_last_sample_ || target_frame != last_target_frame_) {
-      has_last_sample_ = true;
-      last_target_frame_ = target_frame;
-      last_x_ = x;
-      last_y_ = y;
-      last_z_ = z;
-      last_motion_time_ = now;
+    geometry_msgs::msg::TransformStamped transform_past;
+    try {
+      transform_past = tf_buffer_->lookupTransform(
+        base_frame, target_frame,
+        past_tp,
+        tf2::durationFromSec(0.0));
+    } catch (const tf2::TransformException &) {
+      RCLCPP_INFO(
+        node_->get_logger(),
+        "[%s] Waiting for TF history to build (need %.2f s of data for '%s')",
+        registrationName().c_str(), min_static_time_sec, target_frame.c_str());
       return bt_failure(config(), registrationName(), "NO_REAL_FAILURE");
     }
 
-    const double dx = x - last_x_;
-    const double dy = y - last_y_;
-    const double dz = z - last_z_;
+    // Displacement over the full window
+    const double dx = transform_now.transform.translation.x - transform_past.transform.translation.x;
+    const double dy = transform_now.transform.translation.y - transform_past.transform.translation.y;
+    const double dz = transform_now.transform.translation.z - transform_past.transform.translation.z;
     const double displacement = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-    if (displacement > position_epsilon) {
-      last_motion_time_ = now;
-    }
-
-    last_x_ = x;
-    last_y_ = y;
-    last_z_ = z;
-
-    const double static_time = (now - last_motion_time_).seconds();
-    if (static_time >= min_static_time_sec) {
+    if (displacement <= position_epsilon) {
       return BT::NodeStatus::SUCCESS;
     }
+
+    RCLCPP_INFO(
+      node_->get_logger(),
+      "[%s] Target is MOVING (displaced %.4f m over last %.2f s, epsilon: %.4f m)",
+      registrationName().c_str(), displacement, min_static_time_sec, position_epsilon);
     return bt_failure(config(), registrationName(), "NO_REAL_FAILURE");
+
   } catch (const tf2::TransformException & ex) {
     return bt_failure(
       config(), registrationName(),

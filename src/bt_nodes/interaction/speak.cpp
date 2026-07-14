@@ -149,7 +149,7 @@ BT::NodeStatus Speak::onStart()
 BT::NodeStatus Speak::onRunning()
 {
   // First, wait for service call to complete
-  if (!waiting_for_speech_completion_) {
+  // if (!waiting_for_speech_completion_) {
     if (!future_result_) {
       return bt_failure(config(), registrationName(), "no pending service future");
     }
@@ -161,7 +161,7 @@ BT::NodeStatus Speak::onRunning()
       
       if (!result->success) {
         RCLCPP_ERROR(node_->get_logger(), 
-          "Speak: Speech failed: %s", result->debug.c_str());
+        "Speak: Speech failed: %s", result->debug.c_str());
         return bt_failure(config(), registrationName(), "speech service failed: " + result->debug);
       }
       
@@ -175,26 +175,29 @@ BT::NodeStatus Speak::onRunning()
       int duration_ms = text_length * 80 + 500;  // +500ms for padding
       
       speech_duration_ = std::chrono::milliseconds(duration_ms);
-      speech_start_time_ = std::chrono::steady_clock::now();
-      waiting_for_speech_completion_ = true;
       
-      RCLCPP_INFO(node_->get_logger(), 
-        "Speak: TTS service responded, waiting %d ms for speech completion", 
-        duration_ms);
+      std::this_thread::sleep_for(speech_duration_); // todo(juandpenan): remove the sleep
+      
+      // speech_start_time_ = std::chrono::steady_clock::now();
+      // waiting_for_speech_completion_ = true;
+      
+      // RCLCPP_INFO(node_->get_logger(), 
+      //   "Speak: TTS service responded, waiting %d ms for speech completion", 
+      //   duration_ms);
+      // }
+      
+      return BT::NodeStatus::SUCCESS;
     }
-    
-    return BT::NodeStatus::RUNNING;
-  }
   
-  // Now wait for the calculated speech duration to elapse
-  auto elapsed = std::chrono::steady_clock::now() - speech_start_time_;
+  // // Now wait for the calculated speech duration to elapse
+  // auto elapsed = std::chrono::steady_clock::now() - speech_start_time_;
   
-  if (elapsed >= speech_duration_) {
-    RCLCPP_INFO(node_->get_logger(), "Speak: Speech completed");
-    return BT::NodeStatus::SUCCESS;
-  }
+  // if (elapsed >= speech_duration_) {
+  //   RCLCPP_INFO(node_->get_logger(), "Speak: Speech completed");
+  //   return BT::NodeStatus::SUCCESS;
+  // }
   
-  return BT::NodeStatus::RUNNING;
+  return BT::NodeStatus::RUNNING; // running
 }
 
 void Speak::onHalted()
