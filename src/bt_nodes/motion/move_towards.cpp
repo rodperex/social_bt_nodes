@@ -139,7 +139,7 @@ BT::NodeStatus MoveTowards::onRunning()
         "Goal distance reached (distance: %.2f m <= goal: %.2f m), holding position",
         distance, goal_distance_);
       stop_robot();
-      return BT::NodeStatus::SUCCESS;
+      return BT::NodeStatus::RUNNING;
     }
 
     // Calculate velocities using PID control

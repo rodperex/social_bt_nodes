@@ -100,14 +100,15 @@ BT::NodeStatus IsTargetStatic::tick()
     const double dz = transform_now.transform.translation.z - transform_past.transform.translation.z;
     const double displacement = std::sqrt(dx * dx + dy * dy + dz * dz);
 
+     RCLCPP_INFO(
+      node_->get_logger(),
+      "[%s] Target is MOVING (displaced %.4f m over last %.2f s, epsilon: %.4f m)",
+      registrationName().c_str(), displacement, min_static_time_sec, position_epsilon);
+
     if (displacement <= position_epsilon) {
       return BT::NodeStatus::SUCCESS;
     }
 
-    RCLCPP_INFO(
-      node_->get_logger(),
-      "[%s] Target is MOVING (displaced %.4f m over last %.2f s, epsilon: %.4f m)",
-      registrationName().c_str(), displacement, min_static_time_sec, position_epsilon);
     return bt_failure(config(), registrationName(), "NO_REAL_FAILURE");
 
   } catch (const tf2::TransformException & ex) {

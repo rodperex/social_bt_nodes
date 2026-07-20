@@ -20,6 +20,11 @@ SpinSearch::SpinSearch(
   if (!getInput("cmd_vel_topic", cmd_vel_topic)) {
     cmd_vel_topic = "/cmd_vel";
   }
+
+  // if not / in the topic name, prepend the node's namespace
+  if (cmd_vel_topic[0] != '/') {
+    cmd_vel_topic = std::string(node_->get_namespace()) + "/" + cmd_vel_topic;
+  }
   
   cmd_vel_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>(
     cmd_vel_topic, 10);
