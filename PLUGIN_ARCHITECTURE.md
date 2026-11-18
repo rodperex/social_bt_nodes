@@ -57,11 +57,11 @@ social_bt_nodes/
 │       ├── perception/
 │       │   └── is_target_detected.cpp                  # Target detection check
 │       └── interaction/
-│           ├── speak.cpp                               # Text-to-speech
-│           ├── speak_enum.cpp                          # Enumerated speech
-│           ├── listen.cpp                              # Speech recognition
-│           ├── extract.cpp                             # Information extraction
-│           └── yesno.cpp                               # Yes/No confirmation
+│           ├── speak.cpp                               # Text-to-speech (/tts_action)
+│           ├── speak_enum.cpp                          # Enumerated speech (/tts_action)
+│           ├── listen.cpp                              # Speech recognition (/stt_action)
+│           ├── extract.cpp                             # Information extraction (/extract_service)
+│           └── ask_yes_no_question.cpp                 # Yes/No question (actions + /yesno_service)
 ├── include/social_bt_nodes/bt_nodes/
 │   ├── motion/
 │   │   ├── nao_follow.hpp
@@ -71,11 +71,12 @@ social_bt_nodes/
 │   ├── perception/
 │   │   └── is_target_detected.hpp
 │   ├── interaction/
+│   │   ├── hri_action_call.hpp                     # Non-blocking goal of a simple_hri action
 │   │   ├── speak.hpp
 │   │   ├── speak_enum.hpp
 │   │   ├── listen.hpp
 │   │   ├── extract.hpp
-│   │   └── yesno.hpp
+│   │   └── ask_yes_no_question.hpp
 │   └── pid_controller.hpp                              # PID utility
 ├── social_bt_nodes/                                    # Python nodes
 │   ├── entity_tracker_fake_3d.py                       # TF publisher
@@ -188,7 +189,7 @@ add_library(social_bt_nodes_plugin SHARED
   src/bt_nodes/interaction/speak_enum.cpp
   src/bt_nodes/interaction/listen.cpp
   src/bt_nodes/interaction/extract.cpp
-  src/bt_nodes/interaction/yesno.cpp
+  src/bt_nodes/interaction/ask_yes_no_question.cpp
   src/bt_nodes/bt_plugins.cpp
 )
 

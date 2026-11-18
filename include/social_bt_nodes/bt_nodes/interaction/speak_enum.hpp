@@ -7,7 +7,8 @@
 
 #include "behaviortree_cpp/action_node.h"
 #include "rclcpp/rclcpp.hpp"
-#include "simple_hri_interfaces/srv/speech.hpp"
+#include "simple_hri_interfaces/action/say.hpp"
+#include "social_bt_nodes/bt_nodes/interaction/hri_action_call.hpp"
 
 namespace social_bt_nodes
 {
@@ -23,16 +24,18 @@ namespace social_bt_nodes
  *   Output: "manzana, naranja y plátano"
  * 
  * XML Usage:
- *   <SpeakEnum list="apple,orange,banana" separator="," language="en" 
- *              service_name="/tts_service" timeout="5000"/>
+ *   <SpeakEnum list="apple,orange,banana" separator="," language="en"
+ *              action_name="/tts_action" timeout="5000"/>
  * 
  * Ports:
  *   Input:
  *     - list (string): Delimited list of words
  *     - separator (string, default: ","): Token that separates words
  *     - language (string, default: "es"): Language code ("es" or "en")
- *     - service_name (string, default: "/tts_service"): TTS service name
- *     - timeout (int, default: 5000): Service call timeout in ms
+ *     - action_name (string, default: "/tts_action"): TTS action name
+ *     - timeout (int, default: 5000): Time to wait for the action server (ms)
+ *
+ * It finishes when the audio has really finished; halting it stops the audio.
  */
 class SpeakEnum : public BT::StatefulActionNode
 {
@@ -58,8 +61,8 @@ public:
       BT::InputPort<std::string>("list", "Delimited list of words to enumerate"),
       BT::InputPort<std::string>("separator", ",", "Separator token (default: comma)"),
       BT::InputPort<std::string>("language", "es", "Language code: 'es' or 'en'"),
-      BT::InputPort<std::string>("service_name", "/tts_service", "TTS service name"),
-      BT::InputPort<int>("timeout", 5000, "Service call timeout (ms)")
+      BT::InputPort<std::string>("action_name", "/tts_action", "TTS action name"),
+      BT::InputPort<int>("timeout", 5000, "Time to wait for the TTS action server (ms)")
     };
   }
 
@@ -75,17 +78,11 @@ private:
   std::string trim(const std::string & str);
 
   rclcpp::Node::SharedPtr node_;
-  rclcpp::Client<simple_hri_interfaces::srv::Speech>::SharedPtr client_;
-  std::shared_ptr<rclcpp::Client<simple_hri_interfaces::srv::Speech>::FutureAndRequestId> future_result_;
-  
+  HriActionCall<simple_hri_interfaces::action::Say> say_;
+
   std::string enumerated_text_;
-  std::string service_name_;
+  std::string action_name_;
   int timeout_ms_;
-  
-  // For delay after TTS service responds
-  std::chrono::steady_clock::time_point speech_start_time_;
-  std::chrono::milliseconds speech_duration_;
-  bool waiting_for_speech_completion_;
 };
 
 }  // namespace social_bt_nodes

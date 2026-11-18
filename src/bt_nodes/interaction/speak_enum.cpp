@@ -128,7 +128,7 @@ SpeakEnum::SpeakEnum(
   const std::string & name,
   const BT::NodeConfig & conf)
 : BT::StatefulActionNode(name, conf),
-  waiting_for_speech_completion_(false)
+  timeout_ms_(5000)
 {
   // Get ROS node from blackboard
   auto node_any = config().blackboard->get<rclcpp::Node::SharedPtr>("node");
@@ -180,8 +180,8 @@ BT::NodeStatus SpeakEnum::onStart()
     language = "es";
   }
   
-  if (!getInput("service_name", service_name_)) {
-    service_name_ = "/tts_service";
+  if (!getInput("action_name", action_name_)) {
+    action_name_ = "/tts_action";
   }
   
   if (!getInput("timeout", timeout_ms_)) {
@@ -202,81 +202,43 @@ BT::NodeStatus SpeakEnum::onStart()
   RCLCPP_INFO(node_->get_logger(), 
     "SpeakEnum: Enumerated list: '%s'", enumerated_text_.c_str());
   
-  // Create service client if not already created or if service name changed
-  if (!client_ || client_->get_service_name() != service_name_) {
-    client_ = node_->create_client<simple_hri_interfaces::srv::Speech>(service_name_);
+  if (!say_.connect(node_, action_name_, std::chrono::milliseconds(timeout_ms_))) {
+    RCLCPP_WARN(node_->get_logger(),
+      "SpeakEnum: Action server '%s' not available yet", action_name_.c_str());
+    return bt_failure(config(), registrationName(), "action '" + action_name_ + "' not available");
   }
-  
-  // Wait for service to be available
-  if (!client_->wait_for_service(std::chrono::milliseconds(timeout_ms_))) {
-    RCLCPP_WARN(node_->get_logger(), 
-      "SpeakEnum: Service '%s' not available yet", service_name_.c_str());
-    return bt_failure(config(), registrationName(), "service '" + service_name_ + "' not available");
-  }
-  
-  // Prepare and send request
-  auto request = std::make_shared<simple_hri_interfaces::srv::Speech::Request>();
-  request->text = enumerated_text_;
-  
-  future_result_ = std::make_shared<
-    rclcpp::Client<simple_hri_interfaces::srv::Speech>::FutureAndRequestId>(
-    client_->async_send_request(request));
-  
-  waiting_for_speech_completion_ = false;
-  
+
+  simple_hri_interfaces::action::Say::Goal goal;
+  goal.text = enumerated_text_;
+  say_.send(goal);
+
   return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus SpeakEnum::onRunning()
 {
-  // First, wait for service call to complete
-  if (!waiting_for_speech_completion_) {
-    if (!future_result_) {
-      return bt_failure(config(), registrationName(), "no pending service future");
-    }
-    
-    auto status = future_result_->wait_for(std::chrono::milliseconds(0));
-    
-    if (status == std::future_status::ready) {
-      auto result = future_result_->get();
-      
-      if (!result->success) {
-        RCLCPP_ERROR(node_->get_logger(), 
-          "SpeakEnum: Speech failed: %s", result->debug.c_str());
-        return bt_failure(config(), registrationName(), "speech service failed: " + result->debug);
-      }
-      
-      // Service call succeeded, now calculate speech duration
-      int text_length = enumerated_text_.length();
-      int duration_ms = text_length * 80 + 500;  // Same formula as SpeakAction
-      
-      speech_duration_ = std::chrono::milliseconds(duration_ms);
-      speech_start_time_ = std::chrono::steady_clock::now();
-      waiting_for_speech_completion_ = true;
-      
-      RCLCPP_INFO(node_->get_logger(), 
-        "SpeakEnum: TTS service responded, waiting %d ms for speech completion", 
-        duration_ms);
-    }
-    
+  // The Say action finishes when the audio has really finished
+  auto result = say_.poll();
+  if (!result) {
     return BT::NodeStatus::RUNNING;
   }
-  
-  // Now wait for the calculated speech duration to elapse
-  auto elapsed = std::chrono::steady_clock::now() - speech_start_time_;
-  
-  if (elapsed >= speech_duration_) {
-    RCLCPP_INFO(node_->get_logger(), "SpeakEnum: Speech completed");
-    return BT::NodeStatus::SUCCESS;
+
+  if (result->code != rclcpp_action::ResultCode::SUCCEEDED || !result->result ||
+    !result->result->success)
+  {
+    const std::string message = result->result ? result->result->message : "goal rejected";
+    RCLCPP_ERROR(node_->get_logger(), "SpeakEnum: Speech failed: %s", message.c_str());
+    return bt_failure(config(), registrationName(), "speech action failed: " + message);
   }
-  
-  return BT::NodeStatus::RUNNING;
+
+  RCLCPP_INFO(node_->get_logger(), "SpeakEnum: Speech completed");
+  return BT::NodeStatus::SUCCESS;
 }
 
 void SpeakEnum::onHalted()
 {
-  RCLCPP_WARN(node_->get_logger(), "SpeakEnum halted");
-  future_result_.reset();
+  RCLCPP_WARN(node_->get_logger(), "SpeakEnum: Halted, stopping the audio");
+  say_.cancel();
 }
 
 std::string SpeakEnum::build_enumerated_text(

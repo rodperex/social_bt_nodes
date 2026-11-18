@@ -16,7 +16,6 @@
   <depend>vision_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
-  <depend>std_srvs</depend>
   <depend>nao_lola_sensor_msgs</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>

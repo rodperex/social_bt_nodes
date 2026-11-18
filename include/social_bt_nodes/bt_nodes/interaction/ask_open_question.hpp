@@ -3,12 +3,12 @@
 
 #include <memory>
 #include <string>
-#include <chrono>
 
 #include "behaviortree_cpp/action_node.h"
 #include "rclcpp/rclcpp.hpp"
-#include "simple_hri_interfaces/srv/speech.hpp"
-#include "std_srvs/srv/set_bool.hpp"
+#include "simple_hri_interfaces/action/listen.hpp"
+#include "simple_hri_interfaces/action/say.hpp"
+#include "social_bt_nodes/bt_nodes/interaction/hri_action_call.hpp"
 
 namespace social_bt_nodes
 {
@@ -16,9 +16,13 @@ namespace social_bt_nodes
 /**
  * @brief Asks an open-ended question and captures the answer in one node.
  *
- * This node performs two chained service calls:
- *  1) TTS service to ask the question.
- *  2) STT service to capture the user answer.
+ * This node chains two simple_hri actions:
+ *  1) /tts_action (Say) asks the question; it finishes when the audio ends.
+ *  2) /stt_action (Listen) captures the user answer.
+ * Halting the node cancels the running goal (stops the audio or the recording).
+ *
+ * XML Usage:
+ *   <AskOpenQuestion question="¿Cómo te llamas?" answer="{answer}" max_wait="10.0"/>
  */
 class AskOpenQuestion : public BT::StatefulActionNode
 {
@@ -28,7 +32,6 @@ public:
     const BT::NodeConfig & conf);
 
   AskOpenQuestion() = delete;
-
   ~AskOpenQuestion() = default;
 
   BT::NodeStatus onStart() override;
@@ -43,9 +46,11 @@ public:
     return {
       BT::InputPort<std::string>("question", "Question to ask the user"),
       BT::OutputPort<std::string>("answer", "User answer captured by the node"),
-      BT::InputPort<std::string>("tts_service_name", "/tts_service", "TTS service name"),
-      BT::InputPort<std::string>("stt_service_name", "/stt_service", "STT service name"),
-      BT::InputPort<int>("timeout", 10000, "Service call timeout (ms)")
+      BT::InputPort<std::string>("tts_action_name", "/tts_action", "TTS action name"),
+      BT::InputPort<std::string>("stt_action_name", "/stt_action", "STT action name"),
+      BT::InputPort<double>("max_wait", 0.0,
+        "Seconds to wait for the user to start answering (0 = server default)"),
+      BT::InputPort<int>("timeout", 10000, "Time to wait for each action server (ms)")
     };
   }
 
@@ -53,28 +58,20 @@ private:
   enum class Phase
   {
     IDLE,
-    WAITING_TTS,
-    WAITING_STT
+    SPEAKING,
+    LISTENING
   };
 
   rclcpp::Node::SharedPtr node_;
-
-  rclcpp::Client<simple_hri_interfaces::srv::Speech>::SharedPtr tts_client_;
-  rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr stt_client_;
-
-  std::shared_ptr<rclcpp::Client<simple_hri_interfaces::srv::Speech>::FutureAndRequestId>
-  tts_future_result_;
-  std::shared_ptr<rclcpp::Client<std_srvs::srv::SetBool>::FutureAndRequestId>
-  stt_future_result_;
+  HriActionCall<simple_hri_interfaces::action::Say> say_;
+  HriActionCall<simple_hri_interfaces::action::Listen> listen_;
 
   std::string question_;
-  std::string tts_service_name_;
-  std::string stt_service_name_;
+  std::string tts_action_name_;
+  std::string stt_action_name_;
+  double max_wait_;
   int timeout_ms_;
   Phase phase_;
-  bool waiting_for_tts_playback_completion_;
-  std::chrono::steady_clock::time_point tts_playback_start_time_;
-  std::chrono::milliseconds tts_playback_duration_;
 };
 
 }  // namespace social_bt_nodes

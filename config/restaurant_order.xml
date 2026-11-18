@@ -7,11 +7,11 @@
           <Sequence>
             <Speak name="AskIfReady"
                    text="¿Estás listo para ordenar?"
-                   service_name="/tts_service"
+                   action_name="/tts_action"
                    timeout="5000"/>
             <Listen name="ListenReady"
                     transcribed_text="{ready_response}"
-                    service_name="/stt_service"
+                    action_name="/stt_action"
                     timeout="10000"/>
             <AskYesNoQuestion name="CheckReady"
                           text="{ready_response}"
@@ -22,7 +22,7 @@
           <Sequence>
             <Speak name="SayWait"
                    text="Está bien, esperaré un momento"
-                   service_name="/tts_service"
+                   action_name="/tts_action"
                    timeout="5000"/>
             <Delay delay_msec="3000">
               <AlwaysFailure/>
@@ -32,11 +32,11 @@
       </RetryUntilSuccessful>
       <Speak name="AskOrder"
              text="Perfecto. ¿Qué deseas beber y comer?"
-             service_name="/tts_service"
+             action_name="/tts_action"
              timeout="5000"/>
       <Listen name="ListenOrder"
               transcribed_text="{order_text}"
-              service_name="/stt_service"
+              action_name="/stt_action"
               timeout="15000"/>
       <Sequence>
         <Extract name="ExtractDrink"
@@ -54,27 +54,27 @@
       </Sequence>
       <Speak name="ConfirmOrder"
              text="Fantástico. Déjame confirmar tu orden"
-             service_name="/tts_service"
+             action_name="/tts_action"
              timeout="5000"/>
       <Speak name="ConfirmOrder"
              text="De comer quieres"
-             service_name="/tts_service"
+             action_name="/tts_action"
              timeout="5000"/>
       <SpeakEnum name="SayOrder"
                  list="{meal}"
                  separator=";"
                  language="es"
-                 service_name="/tts_service"
+                 action_name="/tts_action"
                  timeout="5000"/>
       <Speak name="ConfirmOrder"
              text="Y de beber quieres"
-             service_name="/tts_service"
+             action_name="/tts_action"
              timeout="5000"/>
       <SpeakEnum name="SayOrder"
                  list="{drink}"
                  separator=";"
                  language="es"
-                 service_name="/tts_service"
+                 action_name="/tts_action"
                  timeout="5000"/>
     </Sequence>
   </BehaviorTree>
@@ -98,13 +98,13 @@
     <Action ID="Listen"
             editable="true">
       <input_port name="transcribed_text"/>
-      <input_port name="service_name"/>
+      <input_port name="action_name"/>
       <input_port name="timeout"/>
     </Action>
     <Action ID="Speak"
             editable="true">
       <input_port name="text"/>
-      <input_port name="service_name"/>
+      <input_port name="action_name"/>
       <input_port name="timeout"/>
     </Action>
     <Action ID="SpeakEnum"
@@ -112,7 +112,7 @@
       <input_port name="list"/>
       <input_port name="separator"/>
       <input_port name="language"/>
-      <input_port name="service_name"/>
+      <input_port name="action_name"/>
       <input_port name="timeout"/>
     </Action>
   </TreeNodesModel>

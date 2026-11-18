@@ -6,11 +6,28 @@
 
 #include "behaviortree_cpp/action_node.h"
 #include "rclcpp/rclcpp.hpp"
-#include "simple_hri_interfaces/srv/speech.hpp"
+#include "simple_hri_interfaces/action/say.hpp"
+#include "social_bt_nodes/bt_nodes/interaction/hri_action_call.hpp"
 
 namespace social_bt_nodes
 {
 
+/**
+ * @brief BehaviorTree node that speaks a text with the simple_hri TTS action
+ *
+ * It sends a goal to /tts_action (simple_hri_interfaces/action/Say) and returns
+ * SUCCESS when the audio has really finished. Halting the node cancels the goal,
+ * which stops the audio. {key} placeholders in the text are read from the blackboard.
+ *
+ * XML Usage:
+ *   <SpeakReactive text="Hello world" action_name="/tts_action" timeout="5000"/>
+ *
+ * Ports:
+ *   Input:
+ *     - text (string): Text to speak
+ *     - action_name (string, default: "/tts_action"): TTS action name
+ *     - timeout (int, default: 5000): Time to wait for the action server (ms)
+ */
 class SpeakReactive : public BT::StatefulActionNode
 {
 public:
@@ -19,7 +36,6 @@ public:
     const BT::NodeConfig & conf);
 
   SpeakReactive() = delete;
-
   ~SpeakReactive() = default;
 
   BT::NodeStatus onStart() override;
@@ -27,29 +43,24 @@ public:
   void onHalted() override;
 
   static constexpr const char * node_description =
-    "Synthesizes and speaks the specified text using a TTS service, then waits for the estimated utterance duration.";
+    "Synthesizes and speaks the specified text using the TTS action; it finishes when the audio ends, and halting it stops the audio.";
 
   static BT::PortsList providedPorts()
   {
     return {
       BT::InputPort<std::string>("text", "Text to speak"),
-      BT::InputPort<std::string>("service_name", "/tts_service", "TTS service name"),
-      BT::InputPort<int>("timeout", 5000, "Service call timeout (ms)")
+      BT::InputPort<std::string>("action_name", "/tts_action", "TTS action name"),
+      BT::InputPort<int>("timeout", 5000, "Time to wait for the TTS action server (ms)")
     };
   }
 
 private:
   rclcpp::Node::SharedPtr node_;
-  rclcpp::Client<simple_hri_interfaces::srv::Speech>::SharedPtr client_;
-  std::shared_ptr<rclcpp::Client<simple_hri_interfaces::srv::Speech>::FutureAndRequestId> future_result_;
+  HriActionCall<simple_hri_interfaces::action::Say> say_;
 
   std::string text_;
-  std::string service_name_;
+  std::string action_name_;
   int timeout_ms_;
-
-  std::chrono::steady_clock::time_point speech_start_time_;
-  std::chrono::milliseconds speech_duration_;
-  bool waiting_for_speech_completion_;
 };
 
 }  // namespace social_bt_nodes

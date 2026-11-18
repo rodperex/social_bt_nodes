@@ -42,14 +42,22 @@ Note: the C++ class for IsDetected is IsTargetDetected, but the XML tag to use i
 
 | Node | Required input ports | Optional input ports | Output ports |
 | --- | --- | --- | --- |
-| Speak | text | service_name (/tts_service), timeout (5000 ms) | - |
-| SpeakEnum | list | separator (,), language (es), service_name (/tts_service), timeout (5000 ms) | - |
-| Listen | - | service_name (/stt_service), timeout (10000 ms) | transcribed_text |
-| YesNo | text | service_name (/yesno_service), timeout (10000 ms) | confirmed |
-| Ask | question | tts_service_name (/tts_service), stt_service_name (/stt_service), timeout (10000 ms) | answer |
+| Speak | text | action_name (/tts_action), timeout (5000 ms) | - |
+| SpeakReactive | text | action_name (/tts_action), timeout (5000 ms) | - |
+| SpeakEnum | list | separator (,), language (es), action_name (/tts_action), timeout (5000 ms) | - |
+| Listen | - | action_name (/stt_action), max_wait (0.0 s = server default), timeout (10000 ms) | transcribed_text |
+| AskYesNoQuestion | question | tts_action_name (/tts_action), stt_action_name (/stt_action), service_name (/yesno_service), max_wait (0.0 s), timeout (10000 ms) | confirmed |
+| AskOpenQuestion | question | tts_action_name (/tts_action), stt_action_name (/stt_action), max_wait (0.0 s), timeout (10000 ms) | answer |
 | Extract | interest, text | service_name (/extract_service), timeout (10000 ms) | extracted_info |
 | NaoPosition | action_name | action_server (/nao_pos_server), timeout (10.0 s) | success |
 | NaoSetLeds | led_ids | mode (0), color_r (1.0), color_g (1.0), color_b (1.0), intensity (1.0), frequency (2.0), duration (-1.0), action_server (leds_play), timeout (10.0 s) | success |
+
+Speaking and listening use the simple_hri actions (`/tts_action`, `/stt_action`): a speaking
+node finishes when the audio has really finished, a listening node when the person has finished
+speaking, and halting either node cancels the goal (stops the audio or the recording).
+`timeout` is the time to wait for the action server, and `max_wait` the seconds to wait for the
+person to start speaking. Extracting information and yes/no detection are queries on a text,
+so they use the simple_hri services (`/extract_service`, `/yesno_service`).
 
 ### Motion
 

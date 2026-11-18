@@ -11,10 +11,9 @@ AskOpenQuestion::AskOpenQuestion(
   const std::string & name,
   const BT::NodeConfig & conf)
 : BT::StatefulActionNode(name, conf),
+  max_wait_(0.0),
   timeout_ms_(10000),
-  phase_(Phase::IDLE),
-  waiting_for_tts_playback_completion_(false),
-  tts_playback_duration_(std::chrono::milliseconds(0))
+  phase_(Phase::IDLE)
 {
   auto node_any = config().blackboard->get<rclcpp::Node::SharedPtr>("node");
   if (!node_any) {
@@ -29,118 +28,81 @@ BT::NodeStatus AskOpenQuestion::onStart()
     RCLCPP_ERROR(node_->get_logger(), "AskOpenQuestion: missing required input 'question'");
     return bt_failure(config(), registrationName(), "missing required input 'question'", "bt_config_error");
   }
-
-  if (!getInput("tts_service_name", tts_service_name_)) {
-    tts_service_name_ = "/tts_service";
+  if (!getInput("tts_action_name", tts_action_name_)) {
+    tts_action_name_ = "/tts_action";
   }
-
-  if (!getInput("stt_service_name", stt_service_name_)) {
-    stt_service_name_ = "/stt_service";
+  if (!getInput("stt_action_name", stt_action_name_)) {
+    stt_action_name_ = "/stt_action";
   }
-
+  if (!getInput("max_wait", max_wait_)) {
+    max_wait_ = 0.0;
+  }
   if (!getInput("timeout", timeout_ms_)) {
     timeout_ms_ = 10000;
   }
 
-  if (!tts_client_ || tts_client_->get_service_name() != tts_service_name_) {
-    tts_client_ = node_->create_client<simple_hri_interfaces::srv::Speech>(tts_service_name_);
-  }
-
-  if (!tts_client_->wait_for_service(std::chrono::milliseconds(timeout_ms_))) {
+  if (!say_.connect(node_, tts_action_name_, std::chrono::milliseconds(timeout_ms_))) {
     RCLCPP_WARN(
       node_->get_logger(),
-      "AskOpenQuestion: TTS service '%s' not available yet", tts_service_name_.c_str());
-    return bt_failure(config(), registrationName(), "service '" + tts_service_name_ + "' not available");
+      "AskOpenQuestion: TTS action server '%s' not available yet", tts_action_name_.c_str());
+    return bt_failure(config(), registrationName(), "action '" + tts_action_name_ + "' not available");
   }
 
-  auto tts_request = std::make_shared<simple_hri_interfaces::srv::Speech::Request>();
-  tts_request->text = question_;
-
   RCLCPP_INFO(node_->get_logger(), "AskOpenQuestion: Asking question '%s'", question_.c_str());
-
-  tts_future_result_ = std::make_shared<
-    rclcpp::Client<simple_hri_interfaces::srv::Speech>::FutureAndRequestId>(
-    tts_client_->async_send_request(tts_request));
-
-  waiting_for_tts_playback_completion_ = false;
-  phase_ = Phase::WAITING_TTS;
+  simple_hri_interfaces::action::Say::Goal goal;
+  goal.text = question_;
+  say_.send(goal);
+  phase_ = Phase::SPEAKING;
   return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus AskOpenQuestion::onRunning()
 {
-  if (phase_ == Phase::WAITING_TTS) {
-    if (waiting_for_tts_playback_completion_) {
-      auto elapsed = std::chrono::steady_clock::now() - tts_playback_start_time_;
-      if (elapsed < tts_playback_duration_) {
-        return BT::NodeStatus::RUNNING;
-      }
-
-      if (!stt_client_ || stt_client_->get_service_name() != stt_service_name_) {
-        stt_client_ = node_->create_client<std_srvs::srv::SetBool>(stt_service_name_);
-      }
-
-      if (!stt_client_->wait_for_service(std::chrono::milliseconds(timeout_ms_))) {
-        RCLCPP_WARN(
-          node_->get_logger(),
-          "AskOpenQuestion: STT service '%s' not available yet", stt_service_name_.c_str());
-        return bt_failure(config(), registrationName(), "service '" + stt_service_name_ + "' not available");
-      }
-
-      auto stt_request = std::make_shared<std_srvs::srv::SetBool::Request>();
-      stt_request->data = true;
-
-      stt_future_result_ = std::make_shared<
-        rclcpp::Client<std_srvs::srv::SetBool>::FutureAndRequestId>(
-        stt_client_->async_send_request(stt_request));
-
-      waiting_for_tts_playback_completion_ = false;
-      tts_future_result_.reset();
-      phase_ = Phase::WAITING_STT;
+  if (phase_ == Phase::SPEAKING) {
+    // Say finishes when the audio has really finished, so listening does not
+    // record the robot's own voice
+    auto said = say_.poll();
+    if (!said) {
       return BT::NodeStatus::RUNNING;
     }
-
-    if (!tts_future_result_) {
-      return bt_failure(config(), registrationName(), "no pending TTS service future");
+    if (said->code != rclcpp_action::ResultCode::SUCCEEDED || !said->result ||
+      !said->result->success)
+    {
+      const std::string message = said->result ? said->result->message : "goal rejected";
+      RCLCPP_ERROR(node_->get_logger(), "AskOpenQuestion: TTS failed: %s", message.c_str());
+      return bt_failure(config(), registrationName(), "TTS action failed: " + message);
     }
 
-    auto tts_status = tts_future_result_->wait_for(std::chrono::milliseconds(0));
-    if (tts_status != std::future_status::ready) {
-      return BT::NodeStatus::RUNNING;
+    if (!listen_.connect(node_, stt_action_name_, std::chrono::milliseconds(timeout_ms_))) {
+      RCLCPP_WARN(
+        node_->get_logger(),
+        "AskOpenQuestion: STT action server '%s' not available yet", stt_action_name_.c_str());
+      return bt_failure(config(), registrationName(), "action '" + stt_action_name_ + "' not available");
     }
-
-    auto tts_result = tts_future_result_->get();
-    if (!tts_result->success) {
-      RCLCPP_ERROR(node_->get_logger(), "AskOpenQuestion: TTS failed: %s", tts_result->debug.c_str());
-      return bt_failure(config(), registrationName(), "TTS service failed: " + tts_result->debug);
-    }
-
-    int duration_ms = static_cast<int>(question_.length()) * 80 + 500;
-    tts_playback_duration_ = std::chrono::milliseconds(duration_ms);
-    tts_playback_start_time_ = std::chrono::steady_clock::now();
-    waiting_for_tts_playback_completion_ = true;
+    simple_hri_interfaces::action::Listen::Goal goal;
+    goal.max_wait = static_cast<float>(max_wait_);
+    listen_.send(goal);
+    phase_ = Phase::LISTENING;
     return BT::NodeStatus::RUNNING;
   }
 
-  if (phase_ == Phase::WAITING_STT) {
-    if (!stt_future_result_) {
-      return bt_failure(config(), registrationName(), "no pending STT service future");
-    }
-
-    auto stt_status = stt_future_result_->wait_for(std::chrono::milliseconds(0));
-    if (stt_status != std::future_status::ready) {
+  if (phase_ == Phase::LISTENING) {
+    auto heard = listen_.poll();
+    if (!heard) {
       return BT::NodeStatus::RUNNING;
     }
-
-    auto stt_result = stt_future_result_->get();
-    if (!stt_result->success) {
-      RCLCPP_ERROR(node_->get_logger(), "AskOpenQuestion: STT failed: %s", stt_result->message.c_str());
-      return bt_failure(config(), registrationName(), "failed to transcribe: " + stt_result->message);
-    }
-
-    setOutput("answer", stt_result->message);
-    RCLCPP_INFO(node_->get_logger(), "AskOpenQuestion: Captured answer '%s'", stt_result->message.c_str());
     phase_ = Phase::IDLE;
+    if (heard->code != rclcpp_action::ResultCode::SUCCEEDED || !heard->result ||
+      !heard->result->success)
+    {
+      const std::string message = !heard->result ? "goal rejected" :
+        (heard->result->timed_out ? "nobody spoke (timeout)" : heard->result->message);
+      RCLCPP_ERROR(node_->get_logger(), "AskOpenQuestion: STT failed: %s", message.c_str());
+      return bt_failure(config(), registrationName(), "failed to transcribe: " + message);
+    }
+    setOutput("answer", heard->result->text);
+    RCLCPP_INFO(
+      node_->get_logger(), "AskOpenQuestion: Captured answer '%s'", heard->result->text.c_str());
     return BT::NodeStatus::SUCCESS;
   }
 
@@ -150,9 +112,8 @@ BT::NodeStatus AskOpenQuestion::onRunning()
 void AskOpenQuestion::onHalted()
 {
   RCLCPP_WARN(node_->get_logger(), "AskOpenQuestion: Halted");
-  tts_future_result_.reset();
-  stt_future_result_.reset();
-  waiting_for_tts_playback_completion_ = false;
+  say_.cancel();
+  listen_.cancel();
   phase_ = Phase::IDLE;
 }
 

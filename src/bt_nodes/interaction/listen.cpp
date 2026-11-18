@@ -7,7 +7,9 @@ namespace social_bt_nodes
 Listen::Listen(
   const std::string & name,
   const BT::NodeConfig & conf)
-: BT::StatefulActionNode(name, conf)
+: BT::StatefulActionNode(name, conf),
+  max_wait_(0.0),
+  timeout_ms_(10000)
 {
   // Get ROS node from blackboard
   auto node_any = config().blackboard->get<rclcpp::Node::SharedPtr>("node");
@@ -20,75 +22,65 @@ Listen::Listen(
 BT::NodeStatus Listen::onStart()
 {
   // Get input parameters
-  if (!getInput("service_name", service_name_)) {
-    service_name_ = "/stt_service";
+  if (!getInput("action_name", action_name_)) {
+    action_name_ = "/stt_action";
   }
-  
+
+  if (!getInput("max_wait", max_wait_)) {
+    max_wait_ = 0.0;
+  }
+
   if (!getInput("timeout", timeout_ms_)) {
     timeout_ms_ = 10000;
   }
-  
-  // Create service client if not already created or if service name changed
-  if (!client_ || client_->get_service_name() != service_name_) {
-    client_ = node_->create_client<std_srvs::srv::SetBool>(service_name_);
+
+  if (!listen_.connect(node_, action_name_, std::chrono::milliseconds(timeout_ms_))) {
+    RCLCPP_WARN(node_->get_logger(),
+      "Listen: Action server '%s' not available yet", action_name_.c_str());
+    return bt_failure(config(), registrationName(), "action '" + action_name_ + "' not available");
   }
-  
-  // Wait for service to be available
-  if (!client_->wait_for_service(std::chrono::milliseconds(timeout_ms_))) {
-    RCLCPP_WARN(node_->get_logger(), 
-      "Listen: Service '%s' not available yet", service_name_.c_str());
-    return bt_failure(config(), registrationName(), "service '" + service_name_ + "' not available");
-  }
-  
-  // Prepare and send request
-  auto request = std::make_shared<std_srvs::srv::SetBool::Request>();
-  request->data = true;  // Start listening
-  
+
   RCLCPP_INFO(node_->get_logger(), "Listen: Starting to listen...");
-  
-  future_result_ = std::make_shared<
-    rclcpp::Client<std_srvs::srv::SetBool>::FutureAndRequestId>(
-    client_->async_send_request(request));
-  
+  simple_hri_interfaces::action::Listen::Goal goal;
+  goal.max_wait = static_cast<float>(max_wait_);
+  listen_.send(goal);
+
   return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus Listen::onRunning()
 {
-  // Check if service call is complete
-  if (!future_result_) {
-    return bt_failure(config(), registrationName(), "no pending service future");
+  auto result = listen_.poll();
+  if (!result) {
+    return BT::NodeStatus::RUNNING;
   }
-  
-  auto status = future_result_->wait_for(std::chrono::milliseconds(0));
-  
-  if (status == std::future_status::ready) {
-    auto result = future_result_->get();
-    
-    if (result->success) {
-      // The transcribed text is in the message field
-      std::string transcribed_text = result->message;
-      RCLCPP_INFO(node_->get_logger(), 
-        "Listen: Transcribed text: '%s'", transcribed_text.c_str());
-      
-      // Set output port with the transcribed text
-      setOutput("transcribed_text", transcribed_text);
-      
-      return BT::NodeStatus::SUCCESS;
-    } else {
-      RCLCPP_ERROR(node_->get_logger(), 
-        "Listen: Failed to transcribe: %s", result->message.c_str());
-      return bt_failure(config(), registrationName(), "failed to transcribe: " + result->message);
-    }
+
+  if (result->code == rclcpp_action::ResultCode::SUCCEEDED && result->result &&
+    result->result->success)
+  {
+    const std::string & transcribed_text = result->result->text;
+    RCLCPP_INFO(node_->get_logger(),
+      "Listen: Transcribed text: '%s'", transcribed_text.c_str());
+
+    // Set output port with the transcribed text
+    setOutput("transcribed_text", transcribed_text);
+    return BT::NodeStatus::SUCCESS;
   }
-  
-  return BT::NodeStatus::RUNNING;
+
+  if (result->result && result->result->timed_out) {
+    RCLCPP_WARN(node_->get_logger(), "Listen: Nobody spoke");
+    return bt_failure(config(), registrationName(), "nobody spoke (timeout)");
+  }
+
+  const std::string message = result->result ? result->result->message : "goal rejected";
+  RCLCPP_ERROR(node_->get_logger(), "Listen: Failed to transcribe: %s", message.c_str());
+  return bt_failure(config(), registrationName(), "failed to transcribe: " + message);
 }
 
 void Listen::onHalted()
 {
-  RCLCPP_WARN(node_->get_logger(), "Listen: Halted");
-  future_result_.reset();
+  RCLCPP_WARN(node_->get_logger(), "Listen: Halted, stopping the recording");
+  listen_.cancel();
 }
 
 }  // namespace social_bt_nodes
