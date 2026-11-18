@@ -7,8 +7,8 @@
 #include "behaviortree_cpp/action_node.h"
 #include "geometry_msgs/msg/twist.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
+#include "tf2_ros/buffer.hpp"
+#include "tf2_ros/transform_listener.hpp"
 #include "social_bt_nodes/bt_nodes/pid_controller.hpp"
 
 namespace social_bt_nodes

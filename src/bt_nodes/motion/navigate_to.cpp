@@ -1,7 +1,7 @@
 #include "social_bt_nodes/bt_nodes/motion/navigate_to.hpp"
 #include "social_bt_nodes/bt_failure.hpp"
 #include <ament_index_cpp/get_package_share_directory.hpp>
-#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Quaternion.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 namespace social_bt_nodes

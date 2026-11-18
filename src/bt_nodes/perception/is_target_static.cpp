@@ -3,7 +3,7 @@
 #include <cmath>
 
 #include "social_bt_nodes/bt_failure.hpp"
-#include "tf2/exceptions.h"
+#include "tf2/exceptions.hpp"
 
 namespace social_bt_nodes
 {

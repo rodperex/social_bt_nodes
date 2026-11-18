@@ -1,6 +1,6 @@
 #include "social_bt_nodes/bt_nodes/motion/follow.hpp"
 #include "social_bt_nodes/bt_failure.hpp"
-#include "tf2/exceptions.h"
+#include "tf2/exceptions.hpp"
 #include <cmath>
 #include <algorithm>
 

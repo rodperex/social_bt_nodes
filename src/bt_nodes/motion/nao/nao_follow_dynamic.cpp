@@ -1,6 +1,6 @@
 #include "social_bt_nodes/bt_nodes/motion/nao/nao_follow_dynamic.hpp"
 #include "social_bt_nodes/bt_failure.hpp"
-#include "tf2/exceptions.h"
+#include "tf2/exceptions.hpp"
 #include <cmath>
 
 namespace social_bt_nodes

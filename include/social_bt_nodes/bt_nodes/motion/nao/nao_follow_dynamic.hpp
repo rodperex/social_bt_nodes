@@ -9,8 +9,8 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "nao_lola_sensor_msgs/msg/sonar.hpp"
 #include "nao_lola_sensor_msgs/msg/touch.hpp"
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
+#include "tf2_ros/buffer.hpp"
+#include "tf2_ros/transform_listener.hpp"
 #include "social_bt_nodes/bt_nodes/pid_controller.hpp"
 
 namespace social_bt_nodes

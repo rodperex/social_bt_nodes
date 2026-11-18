@@ -6,8 +6,8 @@
 
 #include "behaviortree_cpp/condition_node.h"
 #include "rclcpp/rclcpp.hpp"
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
+#include "tf2_ros/buffer.hpp"
+#include "tf2_ros/transform_listener.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 
 namespace social_bt_nodes

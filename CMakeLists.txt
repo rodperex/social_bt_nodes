@@ -6,6 +6,22 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 # find dependencies
+# ament_target_dependencies() no longer exists in ROS 2 Lyrical. This links a target to the
+# targets that each dependency exports (<pkg>::<pkg>, the <pkg>_TARGETS of interface packages,
+# or its include directories and libraries). Works the same on Humble and Jazzy.
+function(link_ament_dependencies target)
+  foreach(dep ${ARGN})
+    if(TARGET ${dep}::${dep})
+      target_link_libraries(${target} ${dep}::${dep})
+    elseif(DEFINED ${dep}_TARGETS)
+      target_link_libraries(${target} ${${dep}_TARGETS})
+    else()
+      target_include_directories(${target} PUBLIC ${${dep}_INCLUDE_DIRS})
+      target_link_libraries(${target} ${${dep}_LIBRARIES})
+    endif()
+  endforeach()
+endfunction()
+
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
@@ -84,7 +100,7 @@ add_library(social_bt_nodes_plugin SHARED
   src/bt_nodes/bt_plugins.cpp
 )
 
-ament_target_dependencies(social_bt_nodes_plugin ${dependencies})
+link_ament_dependencies(social_bt_nodes_plugin ${dependencies})
 target_link_libraries(social_bt_nodes_plugin yaml-cpp)
 
 # Required for BT_REGISTER_NODES macro to work properly
@@ -92,12 +108,12 @@ target_compile_definitions(social_bt_nodes_plugin PRIVATE BT_PLUGIN_EXPORT)
 
 # Main executable
 add_executable(social_bt_nodes_main src/main.cpp)
-ament_target_dependencies(social_bt_nodes_main ${dependencies})
+link_ament_dependencies(social_bt_nodes_main ${dependencies})
 target_link_libraries(social_bt_nodes_main yaml-cpp)
 
 # Utility executable: load key/value YAML into BT blackboard for testing
 add_executable(bt_blackboard_from_yaml src/bt_blackboard_from_yaml.cpp)
-ament_target_dependencies(bt_blackboard_from_yaml behaviortree_cpp)
+link_ament_dependencies(bt_blackboard_from_yaml behaviortree_cpp)
 target_link_libraries(bt_blackboard_from_yaml yaml-cpp)
 
 # Install
