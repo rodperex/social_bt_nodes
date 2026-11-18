@@ -136,6 +136,7 @@ bool load_blackboard_from_yaml(
 
 bool wait_for_valid_ros_time(
   const rclcpp::Node::SharedPtr & node,
+  rclcpp::Executor & executor,
   double timeout_sec)
 {
   const bool use_sim_time = node->get_parameter("use_sim_time").as_bool();
@@ -152,7 +153,7 @@ bool wait_for_valid_ros_time(
   rclcpp::WallRate rate(20.0);
 
   while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
-    rclcpp::spin_some(node);
+    executor.spin_all(std::chrono::milliseconds(10));
     if (node->now().nanoseconds() > 0) {
       RCLCPP_INFO(node->get_logger(), "ROS time is ready");
       return true;
@@ -195,6 +196,13 @@ int main(int argc, char** argv)
   rclcpp::init(argc, argv);
   
   auto node = std::make_shared<rclcpp::Node>("social_bt_nodes");
+
+  // Executor that processes ALL the pending work of the node on every tick. With
+  // rclcpp::spin_some(node), each action client handles a single event per call, so the
+  // feedback of an action (10 Hz in simple_hri) delays its goal response and its result,
+  // and a node halted early cancels its goal too late
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
   
   // Declare parameters
   node->declare_parameter("bt_xml", "");
@@ -276,7 +284,7 @@ int main(int argc, char** argv)
   //     "Groot2 publisher not available: %s", e.what());
   // }
   
-  if (!wait_for_valid_ros_time(node, 10.0)) {
+  if (!wait_for_valid_ros_time(node, executor, 10.0)) {
     return EXIT_SETUP_ERROR;
   }
 
@@ -289,7 +297,7 @@ int main(int argc, char** argv)
   
   while (rclcpp::ok()) {
     // Spin ROS callbacks
-    rclcpp::spin_some(node);
+    executor.spin_all(std::chrono::milliseconds(10));
     
     // Tick the tree
     BT::NodeStatus status = tree.tickOnce();
